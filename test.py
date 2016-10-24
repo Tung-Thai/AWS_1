@@ -1,59 +1,45 @@
-import numpy
-import theano
-import theano.tensor as T
-rng = numpy.random
+from __future__ import print_function
+import numpy as np
+np.random.seed(1337)  # for reproducibility
 
-N = 400                                   # training sample size
-feats = 784                               # number of input variables
+from keras.preprocessing import sequence
+from keras.utils import np_utils
+from keras.models import Sequential
+from keras.layers import Dense, Dropout, Activation, Embedding
+from keras.layers import LSTM, SimpleRNN, GRU
+from keras.datasets import imdb
 
-# generate a dataset: D = (input_values, target_class)
-D = (rng.randn(N, feats), rng.randint(size=N, low=0, high=2))
-training_steps = 10000
+max_features = 20000
+maxlen = 80  # cut texts after this number of words (among top max_features most common words)
+batch_size = 32
 
-# Declare Theano symbolic variables
-x = T.dmatrix("x")
-y = T.dvector("y")
+print('Loading data...')
+(X_train, y_train), (X_test, y_test) = imdb.load_data(nb_words=max_features)
+print(len(X_train), 'train sequences')
+print(len(X_test), 'test sequences')
 
-# initialize the weight vector w randomly
-#
-# this and the following bias variable b
-# are shared so they keep their values
-# between training iterations (updates)
-w = theano.shared(rng.randn(feats), name="w")
+print('Pad sequences (samples x time)')
+X_train = sequence.pad_sequences(X_train, maxlen=maxlen)
+X_test = sequence.pad_sequences(X_test, maxlen=maxlen)
+print('X_train shape:', X_train.shape)
+print('X_test shape:', X_test.shape)
 
-# initialize the bias term
-b = theano.shared(0., name="b")
+print('Build model...')
+model = Sequential()
+model.add(Embedding(max_features, 128, dropout=0.2))
+model.add(LSTM(128, dropout_W=0.2, dropout_U=0.2))  # try using a GRU instead, for fun
+model.add(Dense(1))
+model.add(Activation('sigmoid'))
 
-print("Initial model:")
-print(w.get_value())
-print(b.get_value())
+# try using different optimizers and different optimizer configs
+model.compile(loss='binary_crossentropy',
+              optimizer='adam',
+              metrics=['accuracy'])
 
-# Construct Theano expression graph
-p_1 = 1 / (1 + T.exp(-T.dot(x, w) - b))   # Probability that target = 1
-prediction = p_1 > 0.5                    # The prediction thresholded
-xent = -y * T.log(p_1) - (1-y) * T.log(1-p_1) # Cross-entropy loss function
-cost = xent.mean() + 0.01 * (w ** 2).sum()# The cost to minimize
-gw, gb = T.grad(cost, [w, b])             # Compute the gradient of the cost
-                                          # w.r.t weight vector w and
-                                          # bias term b
-                                          # (we shall return to this in a
-                                          # following section of this tutorial)
-
-# Compile
-train = theano.function(
-          inputs=[x,y],
-          outputs=[prediction, xent],
-          updates=((w, w - 0.1 * gw), (b, b - 0.1 * gb)))
-predict = theano.function(inputs=[x], outputs=prediction)
-
-# Train
-for i in range(training_steps):
-    pred, err = train(D[0], D[1])
-
-print("Final model:")
-print(w.get_value())
-print(b.get_value())
-print("target values for D:")
-print(D[1])
-print("prediction on D:")
-print(predict(D[0]))
+print('Train...')
+model.fit(X_train, y_train, batch_size=batch_size, nb_epoch=15,
+          validation_data=(X_test, y_test))
+score, acc = model.evaluate(X_test, y_test,
+                            batch_size=batch_size)
+print('Test score:', score)
+print('Test accuracy:', acc)
